@@ -44,7 +44,7 @@ def Rz(q):
     ])
     return R
 
-def inertia_matrix(links: tp.List[Link]):
+def inertia_matrix(links: tp.List[Link], c: tp.List):
     q = to_q(links)
     # TODO: Follow parent chaining and determine axis, add prismatic links
     R = [Rz(qi) for qi in np.cumsum(q)]
@@ -62,20 +62,7 @@ def inertia_matrix(links: tp.List[Link]):
             [1, 1],
         ])
     ]
-    # TODO: Follow parent chaining and determine axis, add prismatic links, add offset for CoM
-    c0 = sp.Matrix([
-        links[0].l/2 * sp.cos(q[0]),
-        links[0].l/2 * sp.sin(q[0]),
-        0.0
-    ])
-    c1 = sp.Matrix([
-        links[0].l * sp.cos(q[0]) + links[1].l/2 * sp.cos(q[0] + q[1]),
-        links[0].l * sp.sin(q[0]) + links[1].l/2 * sp.sin(q[0] + q[1]),
-        0.0
-    ])
-    # dc0 = c0.diff(t)
-    # dc1 = c1.diff(t)
-    #Jv0 = dc0.collect(dq)
+    c0, c1 = c
     Jv0 = c0.jacobian(q) # Vc0 = Cv0 * dq
     Jv1 = c1.jacobian(q)
     Jv = [Jv0, Jv1]
@@ -95,25 +82,19 @@ def inertia_matrix(links: tp.List[Link]):
 
 def christoffel(D):
     q = to_q(links)
+    dq = q.diff(t)
+    C = sp.zeros(len(links))
     for k in range(len(links)):
         for i in range(len(links)):
             for j in range(i, len(links)):
                 #print(f"{i=}, {j=}, {k=}")
                 c = 0.5 * (D[k,j].diff(q[i]) + D[k,i].diff(q[j]) - D[i,j].diff(q[k]))
                 print(f"c{i}{j}{k} = {c}")
+                C[k, i] += c * dq[j]
+    return C
 
-def equations_of_motion(links):
-    D = inertia_matrix(links)
-    C = christoffel(D)
-
-def kinetic_energy(links: tp.List[Link]):
-    q = to_q(links)
-    dq = q.diff(t)
-    Dq = inertia_matrix(links)
-    K = 0.5 * dq.T * Dq * dq
-    return K
-
-def potential_energy(links: tp.List[Link]):
+def centroids(links: tp.List[Link]):
+    # TODO: Follow parent chaining and determine axis, add prismatic links, add offset for CoM
     q = to_q(links)
     c0 = sp.Matrix([
         links[0].l/2 * sp.cos(q[0]),
@@ -125,11 +106,26 @@ def potential_energy(links: tp.List[Link]):
         links[0].l * sp.sin(q[0]) + links[1].l/2 * sp.sin(q[0] + q[1]),
         0.0
     ])
+    return [c0, c1]
+
+def potential_energy(links: tp.List[Link], c: tp.List):
     g = sp.Matrix([0.0, -9.82, 0.0])
-    P0 = g.T * c0 * links[0].m
-    P1 = g.T * c1 * links[1].m
-    P = P0 + P1
-    return P
+    c = centroids(links)
+    return sum([g.T * c[i] * links[i].m for i in range(len(links))], sp.zeros(1))
+
+def equations_of_motion(links):
+    c = centroids(links)
+    D = inertia_matrix(links, c)
+    C = christoffel(D)
+    P = potential_energy(links, c)
+    print("hello")
+
+def kinetic_energy(links: tp.List[Link]):
+    q = to_q(links)
+    dq = q.diff(t)
+    Dq = inertia_matrix(links)
+    K = 0.5 * dq.T * Dq * dq
+    return K
 
 DCg = equations_of_motion(links)
 
